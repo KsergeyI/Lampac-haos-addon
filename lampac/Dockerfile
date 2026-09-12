@@ -1,33 +1,25 @@
-# Официальный образ: ghcr.io/lampac-nextgen/lampac (см. README проекта,
-# раздел Docker). Это НЕ docker.io/immisterio/lampac — того места
-# распространения образа не существует.
-#
-# Базовый образ Lampac работает НЕ от root (apt-get внутри него падает
-# с Permission denied на /var/lib/apt/lists). Поэтому jq не ставим через
-# apt в этом образе, а берём готовый статический бинарник из отдельного
-# стейджа на Alpine и просто копируем файл — это не требует прав root
-# в целевом образе и не трогает его пользователя/окружение.
-FROM alpine:3.20 AS jqbuilder
-RUN apk add --no-cache jq
-
 FROM ghcr.io/lampac-nextgen/lampac:latest
 
-# Базовый образ по умолчанию работает от непривилегированного пользователя
-# (отсюда Permission denied и на apt, и потенциально на COPY в /). Переходим
-# на root на все оставшиеся шаги сборки и на рантайм — run.sh всё равно
-# должен иметь право писать/симлинкать файлы внутри /lampac при каждом
-# старте, так что root здесь и корректен, и необходим.
 USER root
 
-COPY --from=jqbuilder /usr/bin/jq /usr/local/bin/jq
+ARG TARGETARCH
+
+RUN case "$TARGETARCH" in \
+      amd64) JQ_ARCH="amd64" ;; \
+      arm64) JQ_ARCH="arm64" ;; \
+      *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+    esac \
+    && curl -fSL \
+       "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-${JQ_ARCH}" \
+       -o /usr/local/bin/jq \
+    && chmod +x /usr/local/bin/jq \
+    && /usr/local/bin/jq --version
 
 WORKDIR /lampac
 
-# Сохраняем "чистые" init.conf/passwd из образа как дефолты (если они там
-# есть), чтобы run.sh мог один раз сгенерировать /config при первом старте.
 COPY run.sh /run.sh
 
-RUN chmod +x /run.sh /usr/local/bin/jq \
+RUN chmod +x /run.sh \
     && (cp init.conf init.conf.default 2>/dev/null || true) \
     && (cp passwd passwd.default 2>/dev/null || true)
 
