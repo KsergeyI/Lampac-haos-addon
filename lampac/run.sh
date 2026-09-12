@@ -84,17 +84,37 @@ for name in "${!DISABLE_IF_FALSE[@]}"; do
   fi
 done
 
-# --- Аниме-провайдеры: каждый включается своим ключом верхнего уровня
-#     в init.conf, например {"AniLibria": {"enable": true}} — формат,
-#     задокументированный в README ("Конфигурация провайдеров"). Мы только
-#     ВКЛЮЧАЕМ перечисленные в опции, остальные провайдеры не трогаем. ------
+# --- Аниме-провайдеры ---------------------------------------------------------
+# Список в anime_providers является полным списком включённых провайдеров.
+# Пустая строка = все поддерживаемые провайдеры выключены.
+
+ALL_ANIME_PROVIDERS=(
+  AniLiberty
+  AniLibria
+  Animevost
+  AnimeON
+  AniMedia
+  MoonAnime
+  Mikai
+  AnimeLib
+)
+
 IFS=',' read -ra WANTED <<< "$ANIME_PROVIDERS"
-for w in "${WANTED[@]}"; do
-  name="$(echo "$w" | xargs)"
-  [ -z "$name" ] && continue
+
+for name in "${ALL_ANIME_PROVIDERS[@]}"; do
+  enabled=false
+
+  for wanted in "${WANTED[@]}"; do
+    wanted="$(echo "$wanted" | xargs)"
+    if [ "$wanted" = "$name" ]; then
+      enabled=true
+      break
+    fi
+  done
+
   tmp="$(mktemp)"
-  jq --arg name "$name" \
-     '.[$name] = ((.[$name] // {}) + {enable: true})' \
+  jq --arg name "$name" --argjson enabled "$enabled" \
+     '.[$name] = ((.[$name] // {}) + {enable: $enabled})' \
      "$CONF_DIR/init.conf" > "$tmp" && mv "$tmp" "$CONF_DIR/init.conf"
 done
 
