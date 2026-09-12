@@ -2,7 +2,8 @@ FROM ghcr.io/lampac-nextgen/lampac@sha256:f15238115f5e2b109c31f88bbf1764574120c8
 
 USER root
 
-RUN apt-get update \
+RUN mkdir -p /usr/share/man/man1 \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         default-jdk-headless \
         apksigner \
@@ -31,4 +32,5 @@ RUN chmod +x /run.sh \
     && (cp passwd passwd.default 2>/dev/null || true)
 
 ENTRYPOINT ["/run.sh"]
+
 CMD ["dotnet", "Core.dll"]
