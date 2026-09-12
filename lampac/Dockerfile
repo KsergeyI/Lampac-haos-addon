@@ -1,4 +1,4 @@
-FROM ghcr.io/lampac-nextgen/lampac:latest
+FROM ghcr.io/lampac-nextgen/lampac@sha256:f15238115f5e2b109c31f88bbf1764574120c80a69947a7dbf49c8e6176f041a
 
 USER root
 
