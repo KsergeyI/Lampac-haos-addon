@@ -14,16 +14,14 @@ json_get() {
 ROOT_PASSWORD=$(json_get '.root_password // ""')
 PORT=$(json_get '.port // 9118')
 TIMEZONE=$(json_get '.timezone // "Europe/Kiev"')
-ENABLE_TORRSERVER=$(json_get '.enable_torrserver // true')
-ENABLE_JACRED=$(json_get '.enable_jacred // true')
-ENABLE_SYNC=$(json_get '.enable_sync // true')
-ENABLE_TIMECODE=$(json_get '.enable_timecode // true')
-ANIME_PROVIDERS=$(json_get '.anime_providers // ""')
+ENABLE_TORRSERVER=$(json_get 'if .enable_torrserver == null then true else .enable_torrserver end')
+ENABLE_JACRED=$(json_get 'if .enable_jacred == null then true else .enable_jacred end')
+ENABLE_SYNC=$(json_get 'if .enable_sync == null then true else .enable_sync end')
+ENABLE_TIMECODE=$(json_get 'if .enable_timecode == null then true else .enable_timecode end')ANIME_PROVIDERS=$(json_get '.anime_providers // ""')
 EXTRA_JSON=$(json_get '.extra_init_json // ""')
 
 [ -z "$PORT" ] && PORT=9118
-[ -z "$TIMEZONE" ] && TIMEZONE="Europe/Kiev"
-[ -z "$ANIME_PROVIDERS" ] && ANIME_PROVIDERS="AniLiberty,AniLibria,Animevost,AnimeON,AniMedia,MoonAnime,Mikai,AnimeLib"
+[ -z "$TIMEZONE" ] && TIMEZONE="Europe/Moscow"
 
 ln -snf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime 2>/dev/null || true
 export TZ="$TIMEZONE"
