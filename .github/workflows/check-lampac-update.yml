@@ -15,42 +15,126 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Get current Lampac image digest
+      - name: Get Lampac version and digest
         id: lampac
-        run: |
-          DIGEST=$(docker buildx imagetools inspect ghcr.io/lampac-nextgen/lampac:latest \
-            --format '{{json .Manifest.Digest}}' | tr -d '"')
-
-          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
-          echo "Lampac digest: $DIGEST"
-
-      - name: Check stored digest
-        id: stored
         shell: bash
         run: |
-          if [ -f .lampac-digest ]; then
-            STORED=$(cat .lampac-digest)
-          else
-            STORED=""
+          set -e
+
+          IMAGE="ghcr.io/lampac-nextgen/lampac:latest"
+
+          echo "=== Inspect official Lampac image ==="
+
+          META=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .}}')
+
+          DIGEST=$(printf '%s' "$META" | jq -r '.manifest.digest // empty')
+          VERSION=$(printf '%s' "$META" | jq -r '.manifest.annotations["org.opencontainers.image.version"] // empty')
+
+          if [ -z "$DIGEST" ]; then
+            echo "ERROR: Could not determine Lampac digest"
+            exit 1
           fi
 
-          echo "stored=$STORED" >> "$GITHUB_OUTPUT"
-          echo "Stored digest: $STORED"
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Could not determine Lampac version"
+            exit 1
+          fi
 
-      - name: Update stored digest
-        if: steps.lampac.outputs.digest != steps.stored.outputs.stored
-        run: |
-          echo "${{ steps.lampac.outputs.digest }}" > .lampac-digest
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: Unexpected Lampac version: $VERSION"
+            exit 1
+          fi
 
-      - name: Bump add-on version
-        if: steps.lampac.outputs.digest != steps.stored.outputs.stored
+          echo "Lampac version: $VERSION"
+          echo "Lampac digest:  $DIGEST"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Check current state
+        id: state
         shell: bash
         run: |
-          VERSION=$(grep '^version:' lampac/config.yaml | sed 's/version: *"\(.*\)"/\1/')
+          set -e
+
+          STORED_DIGEST=""
+          STORED_VERSION=""
+
+          if [ -f .lampac-digest ]; then
+            STORED_DIGEST=$(tr -d '[:space:]' < .lampac-digest)
+          fi
+
+          if [ -f .lampac-version ]; then
+            STORED_VERSION=$(tr -d '[:space:]' < .lampac-version)
+          fi
+
+          CURRENT_FROM=$(head -n 1 lampac/Dockerfile)
+
+          EXPECTED_FROM="FROM ghcr.io/lampac-nextgen/lampac@${{ steps.lampac.outputs.digest }}"
+
+          echo "=== Current state ==="
+          echo "Stored version:  ${STORED_VERSION:-<none>}"
+          echo "Stored digest:   ${STORED_DIGEST:-<none>}"
+          echo "Current Dockerfile FROM:"
+          echo "$CURRENT_FROM"
+          echo
+          echo "Expected Dockerfile FROM:"
+          echo "$EXPECTED_FROM"
+
+          NEEDS_UPDATE=false
+
+          if [ "$STORED_DIGEST" != "${{ steps.lampac.outputs.digest }}" ]; then
+            echo "Reason: Lampac digest changed"
+            NEEDS_UPDATE=true
+          fi
+
+          if [ "$STORED_VERSION" != "${{ steps.lampac.outputs.version }}" ]; then
+            echo "Reason: Lampac version changed or is not stored"
+            NEEDS_UPDATE=true
+          fi
+
+          if [ "$CURRENT_FROM" != "$EXPECTED_FROM" ]; then
+            echo "Reason: Dockerfile is not pinned to the current digest"
+            NEEDS_UPDATE=true
+          fi
+
+          echo "needs_update=$NEEDS_UPDATE" >> "$GITHUB_OUTPUT"
+
+      - name: Update Lampac state
+        if: steps.state.outputs.needs_update == 'true'
+        shell: bash
+        run: |
+          set -e
+
+          DIGEST="${{ steps.lampac.outputs.digest }}"
+          VERSION="${{ steps.lampac.outputs.version }}"
+
+          echo "Updating Lampac to version $VERSION"
+          echo "Digest: $DIGEST"
+
+          echo "$DIGEST" > .lampac-digest
+          echo "$VERSION" > .lampac-version
+
+          # Pin the official Lampac image to the exact manifest digest.
+          sed -i "1c FROM ghcr.io/lampac-nextgen/lampac@${DIGEST}" lampac/Dockerfile
+
+      - name: Bump add-on version
+        if: steps.state.outputs.needs_update == 'true'
+        shell: bash
+        run: |
+          set -e
+
+          VERSION=$(awk -F'"' '/^version:/ {print $2; exit}' lampac/config.yaml)
+
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "ERROR: Invalid add-on version: $VERSION"
+            exit 1
+          fi
 
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
           PATCH=$((PATCH + 1))
 
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
@@ -60,12 +144,26 @@ jobs:
           echo "Add-on version: $VERSION -> $NEW_VERSION"
 
       - name: Commit changes
-        if: steps.lampac.outputs.digest != steps.stored.outputs.stored
+        if: steps.state.outputs.needs_update == 'true'
+        shell: bash
         run: |
+          set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add .lampac-digest lampac/config.yaml
+          git add \
+            .lampac-digest \
+            .lampac-version \
+            lampac/config.yaml \
+            lampac/Dockerfile
 
-          git commit -m "Update Lampac image"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          LAMPAC_VERSION="${{ steps.lampac.outputs.version }}"
+
+          git commit -m "Update Lampac to ${LAMPAC_VERSION}"
           git push
