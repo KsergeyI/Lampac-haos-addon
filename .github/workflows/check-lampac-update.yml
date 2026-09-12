@@ -1,0 +1,71 @@
+name: Check Lampac updates
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get current Lampac image digest
+        id: lampac
+        run: |
+          DIGEST=$(docker buildx imagetools inspect ghcr.io/lampac-nextgen/lampac:latest \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Lampac digest: $DIGEST"
+
+      - name: Check stored digest
+        id: stored
+        shell: bash
+        run: |
+          if [ -f .lampac-digest ]; then
+            STORED=$(cat .lampac-digest)
+          else
+            STORED=""
+          fi
+
+          echo "stored=$STORED" >> "$GITHUB_OUTPUT"
+          echo "Stored digest: $STORED"
+
+      - name: Update stored digest
+        if: steps.lampac.outputs.digest != steps.stored.outputs.stored
+        run: |
+          echo "${{ steps.lampac.outputs.digest }}" > .lampac-digest
+
+      - name: Bump add-on version
+        if: steps.lampac.outputs.digest != steps.stored.outputs.stored
+        shell: bash
+        run: |
+          VERSION=$(grep '^version:' lampac/config.yaml | sed 's/version: *"\(.*\)"/\1/')
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          PATCH=$((PATCH + 1))
+
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+
+          sed -i "s/^version: \".*\"/version: \"$NEW_VERSION\"/" lampac/config.yaml
+
+          echo "Add-on version: $VERSION -> $NEW_VERSION"
+
+      - name: Commit changes
+        if: steps.lampac.outputs.digest != steps.stored.outputs.stored
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add .lampac-digest lampac/config.yaml
+
+          git commit -m "Update Lampac image"
+          git push
