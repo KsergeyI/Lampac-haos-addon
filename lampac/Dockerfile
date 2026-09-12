@@ -2,6 +2,13 @@ FROM ghcr.io/lampac-nextgen/lampac@sha256:f15238115f5e2b109c31f88bbf1764574120c8
 
 USER root
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        default-jdk-headless \
+        apksigner \
+        zipalign \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG TARGETARCH
 
 RUN case "$TARGETARCH" in \
