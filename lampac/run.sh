@@ -7,6 +7,12 @@ LAMPAC_HOME="/lampac"
 
 mkdir -p "$CONF_DIR"
 
+# Persistent storage для встроенного TorrServer
+mkdir -p "$CONF_DIR/data/ts"
+mkdir -p "$LAMPAC_HOME/data"
+
+ln -snf "$CONF_DIR/data/ts" "$LAMPAC_HOME/data/ts"
+
 json_get() {
   jq -r "$1" "$OPTIONS_FILE" 2>/dev/null | sed 's/^null$//'
 }
